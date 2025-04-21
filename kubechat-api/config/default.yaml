@@ -1,0 +1,10 @@
+clusters:
+  - name: "colima"
+    kubeconfig: "./kubeconfig.yaml"
+    allowed_commands:
+      - get
+      - list
+      - describe
+      - logs
+      - scale
+    read_only: false
