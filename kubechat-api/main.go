@@ -45,6 +45,9 @@ func main() {
 		logger.Warn("Kubeconfig not found or invalid, running in degraded mode", zap.Error(err))
 		kubeClient = nil
 	}
+	if kubeClient == nil {
+		logger.Error("[STARTUP] kubeClient is nil! Most API endpoints will return errors. Please check that kubeconfig.yaml exists and is valid. See README for setup instructions.")
+	}
 
 	// Register middleware
 	router.Use(api.CORSMiddleware())

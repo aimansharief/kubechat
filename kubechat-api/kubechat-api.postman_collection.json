@@ -1,0 +1,176 @@
+{
+  "info": {
+    "_postman_id": "b3a1a8c8-1a56-4e3f-b8b9-123456789abc",
+    "name": "KubeChat API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for testing KubeChat API endpoints."
+  },
+  "item": [
+    {
+      "name": "api/v1/execute",
+      "item": [
+        {
+          "name": "Get Pods (default ns)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get pods\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        },
+        {
+          "name": "Get Pods (all namespaces)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get pods -A\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        },
+        {
+          "name": "Get ConfigMaps (default ns)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get cm\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        },
+        {
+          "name": "Get ConfigMaps (all namespaces)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get cm -A\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        },
+        {
+          "name": "Get Pods (custom namespace)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get pods -n kube-system\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        },
+        {
+          "name": "Get ConfigMaps (custom namespace)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get cm -n kube-system\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        },
+        {
+          "name": "Invalid Command",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get apple\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/execute", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "execute"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/dry-run",
+      "item": [
+        {
+          "name": "Dry Run Valid Command",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl get pods\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/dry-run", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "dry-run"]}
+          }
+        },
+        {
+          "name": "Dry Run Invalid Command",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"command\": \"kubectl delete pods\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/dry-run", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "dry-run"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/llm-parse",
+      "item": [
+        {
+          "name": "LLM Parse NL Query",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"query\": \"why is my pod not running?\"\n}"},
+            "url": {"raw": "http://localhost:8080/api/v1/llm-parse", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "llm-parse"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/context",
+      "item": [
+        {
+          "name": "Get Context",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8080/api/v1/context", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "context"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/insights",
+      "item": [
+        {
+          "name": "Get Insights",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8080/api/v1/insights", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "insights"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/metrics",
+      "item": [
+        {
+          "name": "Get Metrics",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8080/api/v1/metrics", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "metrics"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8080/api/v1/health", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "health"]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "api/v1/cluster-health",
+      "item": [
+        {
+          "name": "Cluster Health",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8080/api/v1/cluster-health", "protocol": "http", "host": ["localhost"], "port": "8080", "path": ["api", "v1", "cluster-health"]}
+          }
+        }
+      ]
+    }
+  ]
+
+}

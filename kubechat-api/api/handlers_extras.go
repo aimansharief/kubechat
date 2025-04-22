@@ -77,19 +77,4 @@ func contextHandler(c *gin.Context) {
 	})
 }
 
-// suggestionsHandler returns follow-up commands for a resource
-func suggestionsHandler(c *gin.Context) {
-	resource := c.Query("resource")
-	if resource == "" {
-		c.JSON(400, gin.H{"error": "Missing resource query parameter"})
-		return
-	}
-	suggestions := []string{
-		"kubectl describe " + resource,
-		"kubectl logs " + resource,
-		"kubectl get " + resource,
-		"kubectl edit " + resource,
-		"kubectl scale " + resource,
-	}
-	c.JSON(200, gin.H{"resource": resource, "suggestions": suggestions})
-}
+// suggestionsHandler removed

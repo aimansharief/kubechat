@@ -1,3 +1,0 @@
-# kubechat-api/api
-api/handlers.go:137:58: undefined: err
-api/handlers.go:168:58: undefined: err
