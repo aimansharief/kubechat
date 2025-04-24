@@ -21,6 +21,21 @@ func llmParseHandler(c *gin.Context) {
 		return
 	}
 
+	// Heuristic: if the query is about crashloop, pod failure, or troubleshooting, return a diagnostic command directly
+	q := strings.ToLower(req.Query)
+	if strings.Contains(q, "crashloop") || strings.Contains(q, "crashlooping") || strings.Contains(q, "why is my pod") || strings.Contains(q, "pod failing") {
+		// Try to extract pod name (very basic extraction)
+		podName := "<pod-name>"
+		podNameRe := regexp.MustCompile(`pod ([a-zA-Z0-9-]+)`)
+		if m := podNameRe.FindStringSubmatch(q); len(m) > 1 {
+			podName = m[1]
+		}
+		cmd := "kubectl describe pod " + podName + " -n <namespace> && kubectl logs " + podName + " -n <namespace>"
+		c.JSON(http.StatusOK, gin.H{"kubectl_command": cmd})
+		return
+	}
+
+	// Fallback to LLM as before
 	ollamaURL := "http://localhost:11434/api/generate"
 	model := "llama3.2"
 	prompt := `You are an expert Kubernetes assistant. Given a user request, output ONLY the most relevant kubectl command as JSON with the key: kubectl_command. 

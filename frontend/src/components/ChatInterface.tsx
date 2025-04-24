@@ -13,7 +13,38 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-// Define a simple CommandPreview component since we can't import it
+// Types for props
+interface Command {
+  naturalLanguage: string;
+  kubectlCommand: string;
+  isDestructive: boolean;
+}
+
+interface Message {
+  id: string;
+  content: string;
+  sender: "user" | "system";
+  timestamp: Date;
+  type?: "message" | "command" | "result" | "error" | "warning";
+  command?: string;
+  result?: string;
+}
+
+interface ChatInterfaceProps {
+  messages: Message[];
+  onSendMessage: (msg: string) => void;
+  inputValue: string;
+  setInputValue: (val: string) => void;
+  showSuggestions?: boolean;
+  suggestions?: string[];
+  showCommandPreview: boolean;
+  currentCommand: Command | null;
+  onExecuteCommand: () => void;
+  onDryRun: () => void;
+  onCancelCommand: () => void;
+  originalQuery?: string;
+}
+
 interface CommandPreviewProps {
   command: string;
   originalQuery: string;
@@ -64,93 +95,39 @@ const CommandPreview: React.FC<CommandPreviewProps> = ({
   );
 };
 
-interface Message {
-  id: string;
-  content: string;
-  sender: "user" | "system";
-  timestamp: Date;
-  type?: "message" | "command" | "result" | "error" | "warning";
-  command?: string;
-  result?: string;
-}
 
-interface ChatInterfaceProps {
-  onSendMessage?: (message: string) => void;
-  onExecuteCommand?: (command: string) => Promise<string>;
-  suggestions?: string[];
-  isConnected?: boolean;
-}
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
-  onSendMessage = () => {},
-  onExecuteCommand = async () => "Command executed successfully",
-  suggestions = [
-    "Show all pods in the default namespace",
-    "Scale the frontend deployment to 3 replicas",
-    "Check for pods in CrashLoopBackOff state",
-    "Show cluster resource usage",
-  ],
+  messages,
+  onSendMessage,
+  inputValue,
+  setInputValue,
+  showSuggestions = false,
+  suggestions = [],
+  showCommandPreview,
+  currentCommand,
+  onExecuteCommand,
+  onDryRun,
+  onCancelCommand,
+  originalQuery = "",
   isConnected = true,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      content:
-        "Welcome to KubeChat! How can I help you manage your Kubernetes cluster today?",
-      sender: "system",
-      timestamp: new Date(),
-      type: "message",
-    },
-  ]);
-  const [inputValue, setInputValue] = useState("");
-  const [showCommandPreview, setShowCommandPreview] = useState(false);
-  const [currentCommand, setCurrentCommand] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, [messages]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(e.target.value);
-    if (e.target.value === "") {
-      setShowSuggestions(true);
-    } else {
-      setShowSuggestions(false);
-    }
   };
 
   const handleSendMessage = () => {
     if (inputValue.trim() === "") return;
-
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: inputValue,
-      sender: "user",
-      timestamp: new Date(),
-      type: "message",
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
     onSendMessage(inputValue);
-
-    // Simulate processing and show command preview
-    setTimeout(() => {
-      const generatedCommand = `kubectl ${inputValue.toLowerCase().includes("pod") ? "get pods" : "describe deployment"} ${inputValue.toLowerCase().includes("frontend") ? "frontend" : ""}`;
-      setCurrentCommand(generatedCommand);
-      setShowCommandPreview(true);
-    }, 500);
-
     setInputValue("");
-    setShowSuggestions(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -161,73 +138,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const handleSuggestionClick = (suggestion: string) => {
     setInputValue(suggestion);
-    setShowSuggestions(false);
     inputRef.current?.focus();
   };
 
-  const handleCommandExecution = async (
-    command: string,
-    isDryRun: boolean = false,
-  ) => {
-    setShowCommandPreview(false);
 
-    // Add command message
-    const commandMessage: Message = {
-      id: Date.now().toString(),
-      content: isDryRun ? `[DRY RUN] ${command}` : command,
-      sender: "system",
-      timestamp: new Date(),
-      type: "command",
-      command: command,
-    };
 
-    setMessages((prev) => [...prev, commandMessage]);
 
-    try {
-      // Execute command and get result
-      const result = isDryRun
-        ? "This is a dry run. No changes were made to the cluster.\nValidation passed! Command would execute successfully."
-        : await onExecuteCommand(command);
-
-      // Add result message
-      const resultMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: result,
-        sender: "system",
-        timestamp: new Date(),
-        type: "result",
-        result: result,
-      };
-
-      setMessages((prev) => [...prev, resultMessage]);
-    } catch (error) {
-      // Add error message
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: `Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`,
-        sender: "system",
-        timestamp: new Date(),
-        type: "error",
-      };
-
-      setMessages((prev) => [...prev, errorMessage]);
-    }
-  };
-
-  const handleCancelCommand = () => {
-    setShowCommandPreview(false);
-
-    // Add cancellation message
-    const cancelMessage: Message = {
-      id: Date.now().toString(),
-      content: `Command cancelled: ${currentCommand}`,
-      sender: "system",
-      timestamp: new Date(),
-      type: "warning",
-    };
-
-    setMessages((prev) => [...prev, cancelMessage]);
-  };
 
   const getMessageStyle = (type?: string) => {
     switch (type) {
@@ -317,13 +233,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </ScrollArea>
 
       {/* Command Preview */}
-      {showCommandPreview && (
+      {showCommandPreview && currentCommand && (
         <CommandPreview
-          command={currentCommand}
-          onExecute={() => handleCommandExecution(currentCommand)}
-          onDryRun={() => handleCommandExecution(currentCommand, true)}
-          onCancel={handleCancelCommand}
-          originalQuery={inputValue}
+          command={currentCommand.kubectlCommand}
+          originalQuery={currentCommand.naturalLanguage}
+          onExecute={onExecuteCommand}
+          onDryRun={onDryRun}
+          onCancel={onCancelCommand}
         />
       )}
 

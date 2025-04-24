@@ -21,12 +21,13 @@ func RegisterRoutes(r *gin.Engine, cfg config.Config, logger *zap.Logger, kubeCl
 
 	v1 := r.Group("/api/v1")
 	{
-				v1.POST("/execute", KubectlValidator(cfg, kubeClient, logger), executeHandler)
+		v1.POST("/execute", KubectlValidator(cfg, kubeClient, logger), executeHandler)
 		v1.POST("/dry-run", KubectlValidator(cfg, kubeClient, logger), dryRunHandler)
 		v1.POST("/llm-parse", llmParseHandler)
 		v1.GET("/context", contextHandler)
 		v1.GET("/insights", insightsHandler)
-				v1.GET("/metrics", metricsHandler)
+		v1.GET("/metrics", metricsHandler)
+		v1.GET("/pods", podsHandler)
 		v1.GET("/health", healthHandler)
 		v1.GET("/cluster-health", ClusterHealthHandler(kubeClient, "dev-cluster"))
 	}
@@ -81,6 +82,25 @@ func executeHandler(c *gin.Context) {
 	if !ok || kubeClient == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid Kubernetes client"})
 		return
+	}
+	// Helper for pod restarts
+	countPodRestarts := func(pod *corev1.Pod) int32 {
+		restarts := int32(0)
+		for _, cs := range pod.Status.ContainerStatuses {
+			restarts += cs.RestartCount
+		}
+		return restarts
+	}
+	// Helper for container state string
+	containerStateString := func(state corev1.ContainerState) string {
+		if state.Running != nil {
+			return "Running"
+		} else if state.Waiting != nil {
+			return "Waiting: " + state.Waiting.Reason
+		} else if state.Terminated != nil {
+			return "Terminated: " + state.Terminated.Reason
+		}
+		return "Unknown"
 	}
 	// For audit/logging only: get cluster name from kubeClient or config (first cluster or unknown)
 	clusterName := "unknown"
@@ -252,6 +272,42 @@ func executeHandler(c *gin.Context) {
 				}
 			}
 		}
+	case "describe":
+		// Support: describe pod <pod-name> [-n <namespace>]
+		if resource == "pod" || resource == "pods" {
+			if len(parts) < 4 {
+				opErr = fmt.Errorf("usage: kubectl describe pod <pod-name> [-n <namespace>]")
+			} else {
+				podName := parts[3]
+				pod, err := kubeClient.Clientset.CoreV1().Pods(namespace).Get(c, podName, metav1.GetOptions{})
+				if err != nil {
+					opErr = fmt.Errorf("Error describing pod: %v", err)
+				} else {
+					output = fmt.Sprintf("Name: %s\nNamespace: %s\nStatus: %s\nRestarts: %d\nNode: %s\nStartTime: %s\n", pod.Name, pod.Namespace, pod.Status.Phase, countPodRestarts(pod), pod.Spec.NodeName, pod.Status.StartTime)
+					// Add container states
+					for _, cs := range pod.Status.ContainerStatuses {
+						output += fmt.Sprintf("Container: %s\n  State: %s\n  Restarts: %d\n", cs.Name, containerStateString(cs.State), cs.RestartCount)
+					}
+				}
+			}
+		} else if resource == "deployment" || resource == "deployments" {
+			if len(parts) < 4 {
+				opErr = fmt.Errorf("usage: kubectl describe deployment <deployment-name> [-n <namespace>]")
+			} else {
+				deployName := parts[3]
+				deploy, err := kubeClient.Clientset.AppsV1().Deployments(namespace).Get(c, deployName, metav1.GetOptions{})
+				if err != nil {
+					opErr = fmt.Errorf("Error describing deployment: %v", err)
+				} else {
+					output = fmt.Sprintf("Name: %s\nNamespace: %s\nReplicas: %d\nAvailable: %d\nUpdated: %d\n", deploy.Name, deploy.Namespace, *deploy.Spec.Replicas, deploy.Status.AvailableReplicas, deploy.Status.UpdatedReplicas)
+					// Add selector info
+					output += fmt.Sprintf("Selector: %s\n", metav1.FormatLabelSelector(deploy.Spec.Selector))
+				}
+			}
+		} else {
+			opErr = fmt.Errorf("unsupported resource for describe: %s", resource)
+		}
+		break
 	default:
 		opErr = fmt.Errorf("unsupported verb: %s", verb)
 	}
@@ -283,7 +339,7 @@ func metricsHandler(c *gin.Context) {
 	// Return real metrics if possible
 	kubeClientIface, exists := c.Get("kubeClient")
 	var podCount int
-	var cpuUsage, memoryUsage string = "N/A", "N/A"
+	var cpuUsage, memoryUsage int64
 	if exists && kubeClientIface != nil {
 		kubeClient, ok := kubeClientIface.(*kube.KubeClient)
 		if ok && kubeClient != nil {
@@ -291,87 +347,80 @@ func metricsHandler(c *gin.Context) {
 			if err == nil {
 				podCount = len(podList.Items)
 			}
-			// --- Try to get node metrics from metrics-server ---
-			// Import: k8s.io/metrics/pkg/client/clientset/versioned
 			metricsClient, err := metricsclient.NewForConfig(kubeClient.Config)
 			if err == nil {
 				nodeMetricsList, err := metricsClient.MetricsV1beta1().NodeMetricses().List(c, metav1.ListOptions{})
 				if err == nil && len(nodeMetricsList.Items) > 0 {
-					// Aggregate CPU/memory usage across nodes
-					var totalCPU, totalMem int64
 					for _, nm := range nodeMetricsList.Items {
-						cpu := nm.Usage.Cpu().MilliValue() // millicores
-						mem := nm.Usage.Memory().Value()   // bytes
-						totalCPU += cpu
-						totalMem += mem
+						cpuUsage += nm.Usage.Cpu().MilliValue()
+						memoryUsage += nm.Usage.Memory().Value() / 1024 / 1024
 					}
-					cpuUsage = fmt.Sprintf("%dm", totalCPU)
-					memoryUsage = fmt.Sprintf("%dMi", totalMem/1024/1024)
 				}
 			}
 		}
 	}
-	requestID := c.GetString("requestID")
-	c.JSON(http.StatusOK, gin.H{
-		"pods": podCount,
-		"cpu":   cpuUsage,
-		"memory": memoryUsage,
-		"health": "OK",
-		"request_id": requestID,
-	})
+	metrics := []gin.H{
+		{"name": "CPU Usage", "value": cpuUsage, "max": 10000, "unit": "m"},
+		{"name": "Memory Usage", "value": memoryUsage, "max": 64000, "unit": "Mi"},
+		{"name": "Pods", "value": podCount, "max": 500, "unit": ""},
+	}
+	c.JSON(http.StatusOK, metrics)
 }
 
 func insightsHandler(c *gin.Context) {
-	// Return cluster insights (stub, but structure for real impl)
+	// Return rich cluster insights for frontend
 	kubeClientIface, exists := c.Get("kubeClient")
-	podWarnings := make([]gin.H, 0)
+	insights := make([]gin.H, 0)
 	if exists && kubeClientIface != nil {
 		kubeClient, ok := kubeClientIface.(*kube.KubeClient)
 		if ok && kubeClient != nil {
 			podList, err := kubeClient.Clientset.CoreV1().Pods("").List(c, metav1.ListOptions{})
 			if err == nil {
+				now := time.Now()
 				for _, pod := range podList.Items {
 					for _, cs := range pod.Status.ContainerStatuses {
+						// CrashLoopBackOff
 						if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
-							// Dynamic severity based on RestartCount
-							sev := "high"
-							if cs.RestartCount < 5 && cs.RestartCount >= 2 {
-								sev = "medium"
-							} else if cs.RestartCount == 1 {
-								sev = "low"
-							}
-							podWarnings = append(podWarnings, gin.H{
-								"type": "CrashLoopBackOff",
-								"namespace": pod.Namespace,
-								"pod": pod.Name,
-								"container": cs.Name,
-								"message": fmt.Sprintf("Pod %s (container %s, ns %s) is restarting frequently (restarts: %d)", pod.Name, cs.Name, pod.Namespace, cs.RestartCount),
-								"severity": sev,
-								"suggestion": fmt.Sprintf("Check logs with: kubectl logs %s -n %s -c %s", pod.Name, pod.Namespace, cs.Name),
+							msg := fmt.Sprintf("Pod %s/%s is crashlooping (restarts: %d)", pod.Namespace, pod.Name, cs.RestartCount)
+							insights = append(insights, gin.H{
+								"type": "error",
+								"message": msg,
+								"timestamp": now.Format(time.RFC3339),
 							})
-							// Do not break: allow multiple containers per pod
 						}
+						// High restarts
+						if cs.RestartCount >= 5 {
+							msg := fmt.Sprintf("Pod %s/%s container %s has high restarts: %d", pod.Namespace, pod.Name, cs.Name, cs.RestartCount)
+							insights = append(insights, gin.H{
+								"type": "warning",
+								"message": msg,
+								"timestamp": now.Format(time.RFC3339),
+							})
+						}
+					}
+					// Pending pods
+					if pod.Status.Phase == "Pending" {
+						msg := fmt.Sprintf("Pod %s/%s is pending", pod.Namespace, pod.Name)
+						insights = append(insights, gin.H{
+							"type": "warning",
+							"message": msg,
+							"timestamp": now.Format(time.RFC3339),
+						})
+					}
+					// Failed pods
+					if pod.Status.Phase == "Failed" {
+						msg := fmt.Sprintf("Pod %s/%s has failed", pod.Namespace, pod.Name)
+						insights = append(insights, gin.H{
+							"type": "error",
+							"message": msg,
+							"timestamp": now.Format(time.RFC3339),
+						})
 					}
 				}
 			}
 		}
 	}
-	// Filtering by severity
-	severity := c.Query("severity")
-	if severity != "" {
-		filtered := make([]gin.H, 0, len(podWarnings))
-		for _, w := range podWarnings {
-			if val, ok := w["severity"]; ok && val == severity {
-				filtered = append(filtered, w)
-			}
-		}
-		podWarnings = filtered
-	}
-	requestID := c.GetString("requestID")
-	c.JSON(http.StatusOK, gin.H{
-		"insights": podWarnings,
-		"request_id": requestID,
-	})
+	c.JSON(http.StatusOK, insights)
 }
 
 func healthHandler(c *gin.Context) {

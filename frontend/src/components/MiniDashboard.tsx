@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { fetchClusterMetrics, fetchPodStatuses, fetchClusterInsights } from "@/api/cluster";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
@@ -55,84 +56,33 @@ const MiniDashboard: React.FC<MiniDashboardProps> = ({
   const [activeTab, setActiveTab] = useState("overview");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Mock data - in a real app, this would come from API calls to the Kubernetes cluster
-  const clusterMetrics: ClusterMetric[] = [
-    { name: "CPU Usage", value: 45, max: 100, unit: "%" },
-    { name: "Memory Usage", value: 62, max: 100, unit: "%" },
-    { name: "Disk Usage", value: 38, max: 100, unit: "%" },
-    { name: "Network I/O", value: 25, max: 100, unit: "MB/s" },
-  ];
 
-  const podStatuses: PodStatus[] = [
-    {
-      name: "frontend-deployment-7b9f6d5b8c-1a2b3",
-      namespace: "default",
-      status: "Running",
-      restarts: 0,
-      age: "2d",
-    },
-    {
-      name: "backend-api-5c7d8e9f4a-4c5d6",
-      namespace: "default",
-      status: "Running",
-      restarts: 0,
-      age: "2d",
-    },
-    {
-      name: "database-0",
-      namespace: "db",
-      status: "Running",
-      restarts: 0,
-      age: "5d",
-    },
-    {
-      name: "cache-redis-6b7c8d9e0f-7e8f9",
-      namespace: "cache",
-      status: "Running",
-      restarts: 0,
-      age: "3d",
-    },
-    {
-      name: "monitoring-prometheus-1a2b3c4d5e-6f7g8",
-      namespace: "monitoring",
-      status: "Running",
-      restarts: 0,
-      age: "7d",
-    },
-    {
-      name: "logging-fluentd-9h0i1j2k3l-4m5n6",
-      namespace: "logging",
-      status: "CrashLoopBackOff",
-      restarts: 5,
-      age: "1d",
-    },
-  ];
+  const [clusterMetrics, setClusterMetrics] = useState<ClusterMetric[]>([]);
+  const [podStatuses, setPodStatuses] = useState<PodStatus[]>([]);
+  const [clusterInsights, setClusterInsights] = useState<ClusterInsight[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const clusterInsights: ClusterInsight[] = [
-    {
-      type: "error",
-      message:
-        "Pod logging-fluentd-9h0i1j2k3l-4m5n6 is in CrashLoopBackOff state with 5 restarts",
-      timestamp: "10 minutes ago",
-    },
-    {
-      type: "warning",
-      message:
-        "Memory usage trending high (62%) - consider scaling up resources",
-      timestamp: "25 minutes ago",
-    },
-    {
-      type: "info",
-      message:
-        "New deployment detected: frontend-deployment updated to version v1.2.3",
-      timestamp: "1 hour ago",
-    },
-    {
-      type: "success",
-      message: "All critical services are running optimally",
-      timestamp: "2 hours ago",
-    },
-  ];
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      fetchClusterMetrics(),
+      fetchPodStatuses(),
+      fetchClusterInsights(),
+    ])
+      .then(([metrics, pods, insights]) => {
+        setClusterMetrics(metrics);
+        setPodStatuses(pods);
+        setClusterInsights(insights);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError("Failed to load cluster data");
+        setLoading(false);
+      });
+  }, []);
+
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -290,21 +240,27 @@ const MiniDashboard: React.FC<MiniDashboardProps> = ({
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-0 space-y-2">
-                {clusterInsights.slice(0, 2).map((insight, index) => (
-                  <div
-                    key={index}
-                    className="flex items-start space-x-2 text-sm p-2 rounded-md hover:bg-muted cursor-pointer"
-                    onClick={() => onInsightClick(insight)}
-                  >
-                    {getInsightIcon(insight.type)}
-                    <div className="flex-1">
-                      <p>{insight.message}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {insight.timestamp}
-                      </p>
-                    </div>
+                {clusterInsights.length === 0 ? (
+                  <div className="text-xs text-muted-foreground p-2">
+                    No insights found – your cluster looks healthy!
                   </div>
-                ))}
+                ) : (
+                  clusterInsights.slice(0, 2).map((insight, index) => (
+                    <div
+                      key={index}
+                      className="flex items-start space-x-2 text-sm p-2 rounded-md hover:bg-muted cursor-pointer"
+                      onClick={() => onInsightClick(insight)}
+                    >
+                      {getInsightIcon(insight.type)}
+                      <div className="flex-1">
+                        <p>{insight.message}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {insight.timestamp}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -375,21 +331,27 @@ const MiniDashboard: React.FC<MiniDashboardProps> = ({
               <CardContent className="p-0">
                 <ScrollArea className="h-[calc(100vh-220px)]">
                   <div className="p-3 space-y-3">
-                    {clusterInsights.map((insight, index) => (
-                      <div
-                        key={index}
-                        className="flex items-start space-x-3 p-3 rounded-md border hover:bg-muted cursor-pointer"
-                        onClick={() => onInsightClick(insight)}
-                      >
-                        {getInsightIcon(insight.type)}
-                        <div className="flex-1">
-                          <p>{insight.message}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {insight.timestamp}
-                          </p>
-                        </div>
+                    {clusterInsights.length === 0 ? (
+                      <div className="text-xs text-muted-foreground p-2">
+                        No insights found – your cluster looks healthy!
                       </div>
-                    ))}
+                    ) : (
+                      clusterInsights.map((insight, index) => (
+                        <div
+                          key={index}
+                          className="flex items-start space-x-3 p-3 rounded-md border hover:bg-muted cursor-pointer"
+                          onClick={() => onInsightClick(insight)}
+                        >
+                          {getInsightIcon(insight.type)}
+                          <div className="flex-1">
+                            <p>{insight.message}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {insight.timestamp}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>

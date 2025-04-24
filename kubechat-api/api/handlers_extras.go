@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"io"
+	"time"
 	"github.com/gin-gonic/gin"
 	"kubechat-api/kube"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,6 +41,49 @@ func dryRunHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"result": "Command validated successfully", "success": true})
+}
+
+// podsHandler returns a list of pods for the dashboard
+func podsHandler(c *gin.Context) {
+	kubeClientIface, exists := c.Get("kubeClient")
+	if !exists || kubeClientIface == nil {
+		c.JSON(500, gin.H{"error": "Kubernetes client not available"})
+		return
+	}
+	kubeClient, ok := kubeClientIface.(*kube.KubeClient)
+	if !ok || kubeClient == nil {
+		c.JSON(500, gin.H{"error": "Invalid Kubernetes client"})
+		return
+	}
+	podList, err := kubeClient.Clientset.CoreV1().Pods("").List(c, metav1.ListOptions{})
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to list pods", "details": err.Error()})
+		return
+	}
+	pods := make([]gin.H, 0, len(podList.Items))
+	for _, pod := range podList.Items {
+		restarts := 0
+		for _, cs := range pod.Status.ContainerStatuses {
+			restarts += int(cs.RestartCount)
+		}
+		age := "unknown"
+		if pod.Status.StartTime != nil {
+			dur := time.Since(pod.Status.StartTime.Time)
+			age = dur.Truncate(time.Hour).String()
+		}
+		status := string(pod.Status.Phase)
+		if len(pod.Status.ContainerStatuses) > 0 && pod.Status.ContainerStatuses[0].State.Waiting != nil {
+			status = pod.Status.ContainerStatuses[0].State.Waiting.Reason
+		}
+		pods = append(pods, gin.H{
+			"name": pod.Name,
+			"namespace": pod.Namespace,
+			"status": status,
+			"restarts": restarts,
+			"age": age,
+		})
+	}
+	c.JSON(200, pods)
 }
 
 // contextHandler returns current cluster state

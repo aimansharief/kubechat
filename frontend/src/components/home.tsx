@@ -30,8 +30,13 @@ export default function Home() {
     },
   ]);
 
+  // Fix: Add missing state for input, suggestions
+  const [inputValue, setInputValue] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [currentCommand, setCurrentCommand] = useState<Command | null>(null);
   const [showCommandPreview, setShowCommandPreview] = useState(false);
+  const [pendingQuery, setPendingQuery] = useState<string>("");
 
   // Mock cluster metrics for demonstration
   const clusterMetrics = {
@@ -80,67 +85,88 @@ export default function Home() {
     };
     setMessages((prev) => [...prev, userMessage]);
 
+    // Store the pending query for preview
+    setPendingQuery(content);
     // Process the message (in a real app, this would involve NLP)
     processUserMessage(content);
   };
 
-  const processUserMessage = (content: string) => {
-    // Mock NLP processing - in a real app this would use an actual NLP service
-    setTimeout(() => {
-      // Example command translation
-      if (
-        content.toLowerCase().includes("scale") &&
-        content.toLowerCase().includes("frontend")
-      ) {
+   const processUserMessage = async (content: string) => {
+    try {
+      const resp = await fetch("/api/v1/llm-parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: content }),
+      });
+      const data = await resp.json();
+      if (data.kubectl_command) {
         const command: Command = {
           naturalLanguage: content,
-          kubectlCommand: "kubectl scale deployment frontend --replicas=5",
-          isDestructive: false,
+          kubectlCommand: data.kubectl_command,
+          isDestructive: /delete|remove|scale|patch|apply/.test(data.kubectl_command),
         };
         setCurrentCommand(command);
-        setShowCommandPreview(true);
-      } else if (
-        content.toLowerCase().includes("delete") ||
-        content.toLowerCase().includes("remove")
-      ) {
-        const command: Command = {
-          naturalLanguage: content,
-          kubectlCommand: "kubectl delete pod crashed-pod-abc123",
-          isDestructive: true,
-        };
-        setCurrentCommand(command);
-        setShowCommandPreview(true);
+        setShowCommandPreview(true); // Only show preview after LLM responds
       } else {
-        // Generic response for other queries
-        const systemResponse: Message = {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            content: "Sorry, I could not generate a kubectl command for that query.",
+            sender: "system",
+            timestamp: new Date(),
+          },
+        ]);
+      }
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
           id: Date.now().toString(),
-          content: `I'll help you with "${content}". What specific information are you looking for?`,
+          content: "There was an error contacting the backend.",
           sender: "system",
           timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, systemResponse]);
-      }
-    }, 1000);
+        },
+      ]);
+    }
   };
 
-  const handleExecuteCommand = (dryRun: boolean = false) => {
+  const handleExecuteCommand = async (dryRun: boolean = false) => {
     if (!currentCommand) return;
-
-    // In a real app, this would execute the kubectl command
-    const result = dryRun
-      ? `[DRY RUN] Command would execute: ${currentCommand.kubectlCommand}`
-      : `Executed: ${currentCommand.kubectlCommand}\n\nResult: Operation successful`;
-
-    const systemResponse: Message = {
-      id: Date.now().toString(),
-      content: result,
-      sender: "system",
-      timestamp: new Date(),
-      isCommand: true,
-      commandResult: result,
-    };
-
-    setMessages((prev) => [...prev, systemResponse]);
+    try {
+      const resp = await fetch("/api/v1/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: currentCommand.kubectlCommand,
+          dry_run: dryRun,
+        }),
+      });
+      const data = await resp.json();
+      const result =
+        data.result || data.output || JSON.stringify(data, null, 2);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          content: result,
+          sender: "system",
+          timestamp: new Date(),
+          isCommand: true,
+          commandResult: result,
+        },
+      ]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          content: "There was an error executing the command.",
+          sender: "system",
+          timestamp: new Date(),
+        },
+      ]);
+    }
     setShowCommandPreview(false);
     setCurrentCommand(null);
   };
@@ -172,20 +198,18 @@ export default function Home() {
           <ChatInterface
             messages={messages}
             onSendMessage={handleSendMessage}
+            inputValue={inputValue}
+            setInputValue={setInputValue}
+            showSuggestions={showSuggestions}
+            suggestions={suggestions}
+            showCommandPreview={showCommandPreview}
+            currentCommand={currentCommand}
+            onExecuteCommand={() => handleExecuteCommand(false)}
+            onDryRun={() => handleExecuteCommand(true)}
+            onCancelCommand={handleCancelCommand}
+            originalQuery={pendingQuery}
           />
         </div>
-
-        {/* Command Preview */}
-        {showCommandPreview && currentCommand && (
-          <div className="border-t border-border p-4">
-            <CommandPreview
-              command={currentCommand}
-              onExecute={handleExecuteCommand}
-              onDryRun={() => handleExecuteCommand(true)}
-              onCancel={handleCancelCommand}
-            />
-          </div>
-        )}
       </div>
     </div>
   );
